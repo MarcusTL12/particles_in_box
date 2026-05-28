@@ -22,22 +22,6 @@ function kin_mat_diag((m, n), m1, m2, L)
     π^2 / (2 * L^2) * (m^2 / m1 + n^2 / m2)
 end
 
-# ⟨mn|V|rs⟩
-function potential_integral((m, n), (r, s), q1, q2, d, L)
-    πonL = π / L
-
-    prefac = 4 / L^2 * q1 * q2
-
-    function combined_function((x1, x2))
-        prefac *
-        sin(m * πonL * x1) * sin(n * πonL * x2) *
-        sin(r * πonL * x1) * sin(s * πonL * x2) /
-        √((x1 - x2)^2 + d^2)
-    end
-
-    hcubature(combined_function, (0, 0), (L, L); atol=1e-10)[1]
-end
-
 function potential1d(q1, q2, x1, x2, d)
     r = √((x1 - x2)^2 + d^2)
 
@@ -56,6 +40,32 @@ function potential_square(q1, q2, x1, x2, d)
     end
 end
 
+potential(params...) = potential3d(params...)
+
+function potential_atom(q1, q2, x1, x2, d, L)
+    q_atom = 1.0
+
+    potential(q1, q2, x1, x2, d) +
+    potential(q1, q_atom, x1, L / 2, d) +
+    potential(q2, q_atom, x2, L / 2, d)
+end
+
+# ⟨mn|V|rs⟩
+function potential_integral((m, n), (r, s), q1, q2, d, L)
+    πonL = π / L
+
+    prefac = 4 / L^2
+
+    function combined_function((x1, x2))
+        prefac *
+        sin(m * πonL * x1) * sin(n * πonL * x2) *
+        sin(r * πonL * x1) * sin(s * πonL * x2) *
+        potential_atom(q1, q2, x1, x2, d, L)
+    end
+
+    hcubature(combined_function, (0, 0), (L, L); atol=1e-10)[1]
+end
+
 function cosine_potential_integral(m, n, q1, q2, d, L)
     πonL = π / L
 
@@ -65,7 +75,7 @@ function cosine_potential_integral(m, n, q1, q2, d, L)
         prefac *
         cos(m * πonL * x1) *
         cos(n * πonL * x2) *
-        potential1d(q1, q2, x1, x2, d)
+        potential_atom(q1, q2, x1, x2, d, L)
     end
 
     hcubature(combined_function, (0, 0), (L, L); atol=1e-8)[1]
@@ -74,7 +84,9 @@ end
 function construct_hamiltonian(N, q1, q2, m1, m2, d, L)
     V = zeros(2N + 1, 2N + 1)
 
-    sig_ind_pairs = [(m, n) for n in 0:2N for m in n:2:2N]
+    # sig_ind_pairs = [(m, n) for n in 0:2N for m in n:2:2N]
+    # sig_ind_pairs = [(m, n) for n in 0:2N for m in (n % 2):2:2N]
+    sig_ind_pairs = [(m, n) for n in 0:2N for m in (n % 2):2:2N]
 
     println("N integrals = ", length(sig_ind_pairs))
 
@@ -82,11 +94,14 @@ function construct_hamiltonian(N, q1, q2, m1, m2, d, L)
         V[begin+m, begin+n] = cosine_potential_integral(m, n, q1, q2, d, L)
     end
 
-    V = Symmetric(V, :L)
+    # display(V)
+
+    # V = Symmetric(V, :L)
 
     H = zeros(N, N, N, N)
 
     for s in 1:N, r in 1:N, n in 1:N, m in 1:N
+        # H[m, n, r, s] = potential_integral((m, n), (r, s), q1, q2, d, L)
         H[m, n, r, s] = V[begin+abs(m - r), begin+abs(n - s)] -
                         V[begin+abs(m - r), begin+(n+s)] -
                         V[begin+(m+r), begin+abs(n - s)] +
@@ -116,7 +131,7 @@ function interactive()
     L = Observable(1.0)
 
     xs = @lift range(0, $L, length=200)
-    xs_wireframe = @lift range(0, $L, length=20)
+    xs_wireframe = @lift range(0, $L, length=50)
 
     m = 1
     n = 1
@@ -229,7 +244,7 @@ function interactive()
     end
 
     pot_xs = @lift range(-$L, $L, length=1000)
-    pot_ys = @lift [potential1d($q1, $q2, 0, x, $d_slider) for x in $pot_xs]
+    pot_ys = @lift [potential($q1, $q2, 0, x, $d_slider) for x in $pot_xs]
 
     on(L) do L
         xlims!(axpot, (-L, L))
@@ -280,6 +295,7 @@ function interactive()
 
             @async begin
                 println("Constructing Hamiltonian:")
+                @show q1 q2
                 H = @time construct_hamiltonian(
                     max_n[], q1[], q2[], m1[], m2[], d_slider[], L[])
 
