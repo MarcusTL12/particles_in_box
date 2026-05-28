@@ -78,7 +78,7 @@ function cosine_potential_integral(m, n, q1, q2, d, L)
         potential_atom(q1, q2, x1, x2, d, L)
     end
 
-    hcubature(combined_function, (0, 0), (L, L); atol=1e-8)[1]
+    hcubature(combined_function, (0, 0), (L, L); atol=1e-5, maxevals=1000000)[1]
 end
 
 function construct_hamiltonian(N, q1, q2, m1, m2, d, L)
@@ -152,7 +152,7 @@ function interactive()
     colorlevels = lift(zs) do vals
         edge = maximum(abs, vals) * 1.1
 
-        range(-edge, edge, length=10)
+        range(-edge, edge, length=20)
     end
 
     contourf!(ax2d, xs, xs, zs; colormap=colormap, levels=colorlevels)
@@ -299,7 +299,9 @@ function interactive()
                 H = @time construct_hamiltonian(
                     max_n[], q1[], q2[], m1[], m2[], d_slider[], L[])
 
-                e, C = eigen(H)
+                println("Diagonalizing $(size(H, 1))x$(size(H, 2)) matrix")
+
+                e, C = @time eigen(H)
 
                 energies[] = e
                 coeffs[] = C
