@@ -38,16 +38,34 @@ function potential_integral((m, n), (r, s), q1, q2, d, L)
     hcubature(combined_function, (0, 0), (L, L); atol=1e-10)[1]
 end
 
+function potential1d(q1, q2, x1, x2, d)
+    r = √((x1 - x2)^2 + d^2)
+
+    -2π * r * q1 * q2
+end
+
+function potential3d(q1, q2, x1, x2, d)
+    q1 * q2 / √((x1 - x2)^2 + d^2)
+end
+
+function potential_square(q1, q2, x1, x2, d)
+    if abs(x1 - x2) < d
+        q1 * q2
+    else
+        0.0
+    end
+end
+
 function cosine_potential_integral(m, n, q1, q2, d, L)
     πonL = π / L
 
-    prefac = q1 * q2 / L^2
+    prefac = 1 / L^2
 
     function combined_function((x1, x2))
         prefac *
         cos(m * πonL * x1) *
-        cos(n * πonL * x2) /
-        √((x1 - x2)^2 + d^2)
+        cos(n * πonL * x2) *
+        potential1d(q1, q2, x1, x2, d)
     end
 
     hcubature(combined_function, (0, 0), (L, L); atol=1e-8)[1]
@@ -95,18 +113,18 @@ function interactive()
 
     config_panel = f[1, 2]
 
-    L = 1.0
+    L = Observable(1.0)
 
-    xs = range(0, L, length=200)
-    xs_wireframe = range(0, L, length=20)
+    xs = @lift range(0, $L, length=200)
+    xs_wireframe = @lift range(0, $L, length=20)
 
     m = 1
     n = 1
 
-    zs = Observable([sin(m * π / L * x) * sin(n * π / L * y)
-                     for x in xs, y in xs])
-    zs_wireframe = [sin(m * π / L * x) * sin(n * π / L * y)
-                    for x in xs_wireframe, y in xs_wireframe]
+    zs = Observable([sin(m * π / L[] * x) * sin(n * π / L[] * y)
+                     for x in xs[], y in xs[]])
+    zs_wireframe = [sin(m * π / L[] * x) * sin(n * π / L[] * y)
+                    for x in xs_wireframe[], y in xs_wireframe[]]
 
     colormap = :redsblues
 
@@ -140,6 +158,7 @@ function interactive()
     m1_default = "1"
     m2_default = "1"
     state_default = "1"
+    L_default = "1.0"
 
     energy = Observable(0.0)
 
@@ -168,12 +187,17 @@ function interactive()
         validator=Float64, placeholder=m2_default)
     m2_box.stored_string[] = m2_default
 
-    Label(config_panel[2, 1][6, 1], "state =")
-    state_box = Textbox(config_panel[2, 1][6, 2];
+    Label(config_panel[2, 1][6, 1], "L =")
+    L_box = Textbox(config_panel[2, 1][6, 2];
+        validator=Float64, placeholder=L_default)
+    L_box.stored_string[] = L_default
+
+    Label(config_panel[2, 1][7, 1], "state =")
+    state_box = Textbox(config_panel[2, 1][7, 2];
         validator=Float64, placeholder=state_default)
     state_box.stored_string[] = state_default
 
-    Label(config_panel[2, 1][7, 1], (@lift @sprintf "E = %.3f" $energy))
+    Label(config_panel[2, 1][8, 1], (@lift @sprintf "E = %.3f" $energy))
 
     is_solving = Observable(false)
 
@@ -200,10 +224,18 @@ function interactive()
         parse(Float64, text)
     end
 
-    pot_xs = range(-L, L, length=1000)
-    pot_ys = @lift [$q1 * $q2 / √(x^2 + ($d_slider)^2) for x in pot_xs]
+    on(L_box.stored_string) do text
+        L[] = parse(Float64, text)
+    end
 
-    xlims!(axpot, (-L, L))
+    pot_xs = @lift range(-$L, $L, length=1000)
+    pot_ys = @lift [potential1d($q1, $q2, 0, x, $d_slider) for x in $pot_xs]
+
+    on(L) do L
+        xlims!(axpot, (-L, L))
+        xlims!(ax2d, (0, L))
+        ylims!(ax2d, (0, L))
+    end
 
     pot_ylims = @lift ($q1, $q2, $d_slider)
 
@@ -236,10 +268,10 @@ function interactive()
     basis_eval_wireframe = Observable(zeros(0, 0))
 
     basis_eval = lift(max_n) do N
-        πonL = π / L
+        πonL = π / L[]
         basis_eval_wireframe[] = [sin(n * πonL * x)
-                                  for n in 1:N, x in xs_wireframe]
-        [sin(n * πonL * x) for n in 1:N, x in xs]
+                                  for n in 1:N, x in xs_wireframe[]]
+        [sin(n * πonL * x) for n in 1:N, x in xs[]]
     end
 
     on(solve_btn.clicks) do _
@@ -249,7 +281,7 @@ function interactive()
             @async begin
                 println("Constructing Hamiltonian:")
                 H = @time construct_hamiltonian(
-                    max_n[], q1[], q2[], m1[], m2[], d_slider[], L)
+                    max_n[], q1[], q2[], m1[], m2[], d_slider[], L[])
 
                 e, C = eigen(H)
 
@@ -261,7 +293,7 @@ function interactive()
         end
     end
 
-    on(state) do state_ind
+    onany(state, L) do state_ind, L
         print("Rendering...")
 
         be = basis_eval[]
@@ -270,7 +302,7 @@ function interactive()
         C = @view coeffs[][:, state_ind]
         C = reshape(C, size(be, 1), size(be, 1))
 
-        for j in 1:length(xs), i in 1:length(xs)
+        for j in 1:length(xs[]), i in 1:length(xs[])
             z = 0.0
 
             for n in axes(be, 1), m in axes(be, 1)
@@ -287,7 +319,7 @@ function interactive()
             zs[] .*= -1.0
         end
 
-        for j in 1:length(xs_wireframe), i in 1:length(xs_wireframe)
+        for j in 1:length(xs_wireframe[]), i in 1:length(xs_wireframe[])
             z = 0.0
 
             for n in axes(bew, 1), m in axes(bew, 1)
