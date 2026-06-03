@@ -4,6 +4,8 @@ using LinearAlgebra
 using GLMakie
 using Printf
 using DSP
+using LinearMaps
+using Arpack
 
 # Just to ensure orthonormal basis
 # ⟨mn|rs⟩ = δ_mn,rs
@@ -161,15 +163,15 @@ function apply_hamiltonian(V, m1, m2, L, ρ)
     N = size(ρ, 1)
 
     bigV = [
-        V[end:-1:2, end:-1:2] V[end:-1:2, :]
-        V[:, end:-1:2] V
+        V[end:-1:2, end:-1:2] V[end:-1:2, 1:end-(N+1)]
+        V[1:end-(N+1), end:-1:2] V[1:end-(N+1), 1:end-(N+1)]
     ]
 
-    C = @time conv(bigV, ρ)
+    C = conv(bigV, ρ)
 
-    b00 = @view C[end-(3N-1):end-2N, end-(3N-1):end-2N]
-    b01 = @view C[end-(3N-1):end-2N, begin+2(N-1):-1:begin+(N-1)]
-    b10 = @view C[begin+2(N-1):-1:begin+(N-1), end-(3N-1):end-2N]
+    b00 = @view C[end-2(N-1):end-(N-1), end-2(N-1):end-(N-1)]
+    b01 = @view C[end-2(N-1):end-(N-1), begin+2(N-1):-1:begin+(N-1)]
+    b10 = @view C[begin+2(N-1):-1:begin+(N-1), end-2(N-1):end-(N-1)]
     b11 = @view C[begin+2(N-1):-1:begin+(N-1), begin+2(N-1):-1:begin+(N-1)]
 
     b = zeros(size(ρ))
@@ -184,6 +186,33 @@ function apply_hamiltonian(V, m1, m2, L, ρ)
     end
 
     b
+end
+
+function construct_hamiltonian_operator(N, q1, q2, m1, m2, d, L)
+    pot_func(x1, x2) = potential_atom(q1, q2, x1, x2, d, L)
+    V = do_dct(N, 20_000, L, pot_func)
+
+    i_iter = 0
+    prev_print_iter = 0
+    t = time()
+
+    LinearMap(N^2; issymmetric=true) do ρ
+        b = apply_hamiltonian(V, m1, m2, L, reshape(ρ, N, N))[:]
+
+        new_t = time()
+
+        i_iter += 1
+
+        if new_t - t > 1
+            n_iter = i_iter - prev_print_iter
+            prev_print_iter = i_iter
+            time_taken = new_t - t
+            t = new_t
+            @printf "i = %5d ; %3d iterations done in %.2f s\n" i_iter n_iter time_taken
+        end
+
+        b
+    end
 end
 
 max_states = 5
