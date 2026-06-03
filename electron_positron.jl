@@ -1,4 +1,5 @@
 using HCubature
+using FFTW
 using LinearAlgebra
 using GLMakie
 using Printf
@@ -81,18 +82,58 @@ function cosine_potential_integral(m, n, q1, q2, d, L)
     hcubature(combined_function, (0, 0), (L, L); atol=1e-5, maxevals=1000000)[1]
 end
 
+function sample_function(xs, ys, f)
+    sample = zeros(Float64, length(xs), length(ys))
+
+    @inbounds begin
+        Threads.@threads for j in eachindex(ys)
+            y = ys[j]
+            for (i, x) in enumerate(xs)
+                sample[i, j] = f(x, y)
+            end
+        end
+    end
+
+    sample
+end
+
+function do_dct(N, M, L, pot_func)
+    xs = range(0, L, length=(M + 1))[1:end-1]
+
+    xs = xs .+ step(xs) / 2
+
+    println("Sampling potential at $(M^2) points:")
+
+    sample = @time sample_function(xs, xs, pot_func)
+
+    println("Computing DCT:")
+    @time begin
+        dct_plan = FFTW.plan_r2r!(sample, FFTW.REDFT10; num_threads=Threads.nthreads())
+        FFTW.mul!(sample, dct_plan, sample)
+    end
+
+    result = sample[1:(2N+1), 1:(2N+1)]
+
+    result .*= 1 / (4 * M^2)
+
+    result
+end
+
 function construct_hamiltonian(N, q1, q2, m1, m2, d, L)
-    V = zeros(2N + 1, 2N + 1)
+    # V = zeros(2N + 1, 2N + 1)
 
     # sig_ind_pairs = [(m, n) for n in 0:2N for m in n:2:2N]
     # sig_ind_pairs = [(m, n) for n in 0:2N for m in (n % 2):2:2N]
-    sig_ind_pairs = [(m, n) for n in 0:2N for m in (n % 2):2:2N]
+    # sig_ind_pairs = [(m, n) for n in 0:2N for m in (n % 2):2:2N]
 
-    println("N integrals = ", length(sig_ind_pairs))
+    # println("N integrals = ", length(sig_ind_pairs))
 
-    Threads.@threads :greedy for (m, n) in sig_ind_pairs
-        V[begin+m, begin+n] = cosine_potential_integral(m, n, q1, q2, d, L)
-    end
+    # Threads.@threads :greedy for (m, n) in sig_ind_pairs
+    #     V[begin+m, begin+n] = cosine_potential_integral(m, n, q1, q2, d, L)
+    # end
+
+    pot_func(x1, x2) = potential_atom(q1, q2, x1, x2, d, L)
+    V = do_dct(2N + 1, 20_000, L, pot_func)
 
     # display(V)
 
@@ -114,6 +155,8 @@ function construct_hamiltonian(N, q1, q2, m1, m2, d, L)
 
     reshape(H, N^2, N^2)
 end
+
+max_states = 5
 
 function interactive()
     f = Figure(size=(1920, 1080))
@@ -295,13 +338,14 @@ function interactive()
 
             @async begin
                 println("Constructing Hamiltonian:")
-                @show q1 q2
                 H = @time construct_hamiltonian(
                     max_n[], q1[], q2[], m1[], m2[], d_slider[], L[])
 
                 println("Diagonalizing $(size(H, 1))x$(size(H, 2)) matrix")
 
-                e, C = @time eigen(H)
+                H = Symmetric(H)
+
+                e, C = @time eigen(H, 1:min(max_states, size(H, 1)))
 
                 energies[] = e
                 coeffs[] = C
