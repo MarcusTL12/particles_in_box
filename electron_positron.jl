@@ -3,6 +3,7 @@ using FFTW
 using LinearAlgebra
 using GLMakie
 using Printf
+using DSP
 
 # Just to ensure orthonormal basis
 # ⟨mn|rs⟩ = δ_mn,rs
@@ -47,8 +48,8 @@ function potential_atom(q1, q2, x1, x2, d, L)
     q_atom = 1.0
 
     potential(q1, q2, x1, x2, d) +
-    potential(q1, q_atom, x1, L / 2, d) +
-    potential(q2, q_atom, x2, L / 2, d)
+    potential(q1, q_atom, x1, L / 3, d) +
+    potential(q2, q_atom, x2, L / 3, d)
 end
 
 # ⟨mn|V|rs⟩
@@ -133,7 +134,7 @@ function construct_hamiltonian(N, q1, q2, m1, m2, d, L)
     # end
 
     pot_func(x1, x2) = potential_atom(q1, q2, x1, x2, d, L)
-    V = do_dct(2N + 1, 20_000, L, pot_func)
+    V = do_dct(N, 20_000, L, pot_func)
 
     # display(V)
 
@@ -154,6 +155,35 @@ function construct_hamiltonian(N, q1, q2, m1, m2, d, L)
     end
 
     reshape(H, N^2, N^2)
+end
+
+function apply_hamiltonian(V, m1, m2, L, ρ)
+    N = size(ρ, 1)
+
+    bigV = [
+        V[end:-1:2, end:-1:2] V[end:-1:2, :]
+        V[:, end:-1:2] V
+    ]
+
+    C = @time conv(bigV, ρ)
+
+    b00 = @view C[end-(3N-1):end-2N, end-(3N-1):end-2N]
+    b01 = @view C[end-(3N-1):end-2N, begin+2(N-1):-1:begin+(N-1)]
+    b10 = @view C[begin+2(N-1):-1:begin+(N-1), end-(3N-1):end-2N]
+    b11 = @view C[begin+2(N-1):-1:begin+(N-1), begin+2(N-1):-1:begin+(N-1)]
+
+    b = zeros(size(ρ))
+
+    b .+= b00
+    b .-= b01
+    b .-= b10
+    b .+= b11
+
+    for n in 1:N, m in 1:N
+        b[m, n] += kin_mat_diag((m, n), m1, m2, L) * ρ[m, n]
+    end
+
+    b
 end
 
 max_states = 5
