@@ -58,6 +58,21 @@ function construct_cosine_integral_matrix(N, L, pot_func)
     V
 end
 
+function sample_function(xs, ys, f)
+    sample = zeros(Float64, length(xs), length(ys))
+
+    @inbounds begin
+        Threads.@threads for j in eachindex(ys)
+            y = ys[j]
+            for (i, x) in enumerate(xs)
+                sample[i, j] = f(x, y)
+            end
+        end
+    end
+
+    sample
+end
+
 function do_dct(N, M, L, pot_func)
     xs = range(0, L, length=(M + 1))[1:end-1]
 
@@ -65,14 +80,15 @@ function do_dct(N, M, L, pot_func)
 
     println("Sampling potential at $(M^2) points:")
 
-    @time begin
-        sample = [pot_func(x1, x2) for x1 in xs, x2 in xs]
-    end
+    sample = @time sample_function(xs, xs, pot_func)
 
     println("Computing DCT:")
-    result = @time FFTW.r2r(sample, FFTW.REDFT10)
+    @time begin
+        dct_plan = FFTW.plan_r2r!(sample, FFTW.REDFT10; num_threads=12)
+        FFTW.mul!(sample, dct_plan, sample)
+    end
 
-    result = result[1:(2N+1), 1:(2N+1)]
+    result = sample[1:(2N+1), 1:(2N+1)]
 
     result .*= 1 / (4 * M^2)
 
