@@ -6,6 +6,7 @@ using Printf
 using DSP
 using LinearMaps
 using Arpack
+using Preconditioners
 
 # Just to ensure orthonormal basis
 # ⟨mn|rs⟩ = δ_mn,rs
@@ -196,7 +197,7 @@ function construct_hamiltonian_operator(N, q1, q2, m1, m2, d, L)
     prev_print_iter = 0
     t = time()
 
-    LinearMap(N^2; issymmetric=true) do ρ
+    H = LinearMap(N^2; issymmetric=true) do ρ
         b = apply_hamiltonian(V, m1, m2, L, reshape(ρ, N, N))[:]
 
         new_t = time()
@@ -213,6 +214,24 @@ function construct_hamiltonian_operator(N, q1, q2, m1, m2, d, L)
 
         b
     end
+
+    kin_mat = Diagonal([kin_mat_diag((m, n), m1, m2, L) for n in 1:N for m in 1:N])
+
+    H, kin_mat
+end
+
+function make_guesses(N, m1, m2, L, nev)
+    diag = [kin_mat_diag((m, n), m1, m2, L) for n in 1:N for m in 1:N]
+
+    order = sort(eachindex(diag); lt=(i, j) -> diag[i] < diag[j])
+
+    guesses = zeros(N^2, nev)
+
+    for i in 1:nev
+        guesses[order[i], i] = 1.0
+    end
+
+    guesses
 end
 
 max_states = 5
