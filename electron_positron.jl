@@ -232,7 +232,7 @@ function make_guesses(P, nev)
     guesses
 end
 
-max_states = 5
+max_states = 6
 solve_tol = 1e-5
 
 function interactive()
@@ -403,6 +403,20 @@ function interactive()
     basis_eval_wireframe = Observable(zeros(0, 0))
 
     basis_eval = lift(max_n) do N
+        if size(coeffs[]) != (0, 0)
+            println("Upsampling guess coeffs:")
+            @time begin
+                old_N = size(basis_eval_wireframe[], 1)
+                n_guesses = size(coeffs[], 2)
+                new_coeffs = zeros(N, N, n_guesses)
+                old_coeffs = reshape(coeffs[], old_N, old_N, n_guesses)
+
+                new_coeffs[1:old_N, 1:old_N, :] .= old_coeffs
+
+                coeffs[] = reshape(new_coeffs, N^2, n_guesses)
+            end
+        end
+
         println("Sampling basis functions:")
         @time begin
             πonL = π / L[]
@@ -413,10 +427,10 @@ function interactive()
     end
 
     on(solve_btn.clicks) do _
-        if !is_solving[]
+        if !is_solving[] || true
             is_solving[] = true
 
-            @async begin
+            begin
                 println("Constructing Hamiltonian:")
                 # H = @time construct_hamiltonian(
                 #     max_n[], q1[], q2[], m1[], m2[], d_slider[], L[])
@@ -432,6 +446,11 @@ function interactive()
                 println("Constructing $max_states initial guesses")
 
                 guess = @time make_guesses(P, max_states)
+
+                if size(guess) == size(coeffs[])
+                    println("Using previous solution as initial guess")
+                    guess = coeffs[]
+                end
 
                 println("Diagonalizing $(size(H, 1))x$(size(H, 2)) matrix")
 
