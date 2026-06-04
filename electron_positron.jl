@@ -416,7 +416,7 @@ function interactive()
         if !is_solving[]
             is_solving[] = true
 
-            begin
+            @async begin
                 println("Constructing Hamiltonian:")
                 # H = @time construct_hamiltonian(
                 #     max_n[], q1[], q2[], m1[], m2[], d_slider[], L[])
