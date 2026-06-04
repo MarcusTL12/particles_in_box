@@ -453,21 +453,15 @@ function interactive()
     onany(state, L) do state_ind, L
         print("Rendering...")
 
+        t0 = time()
+
         be = basis_eval[]
         bew = basis_eval_wireframe[]
 
         C = @view coeffs[][:, state_ind]
         C = reshape(C, size(be, 1), size(be, 1))
 
-        for j in 1:length(xs[]), i in 1:length(xs[])
-            z = 0.0
-
-            for n in axes(be, 1), m in axes(be, 1)
-                z += be[m, i] * be[n, j] * C[m, n]
-            end
-
-            zs[][i, j] = z
-        end
+        zs[] = be' * C * be
 
         s = 1.0
 
@@ -476,15 +470,7 @@ function interactive()
             zs[] .*= -1.0
         end
 
-        for j in 1:length(xs_wireframe[]), i in 1:length(xs_wireframe[])
-            z = 0.0
-
-            for n in axes(bew, 1), m in axes(bew, 1)
-                z += bew[m, i] * bew[n, j] * C[m, n] * s
-            end
-
-            zs_wireframe[i, j] = z
-        end
+        zs_wireframe = bew' * C * bew * s
 
         notify(zs)
 
@@ -495,7 +481,9 @@ function interactive()
 
         zlims!(ax3d, (nothing, nothing))
 
-        println("Done!")
+        t = time() - t0
+
+        @printf "Done! (%.2f s)\n" t
     end
 
     f
