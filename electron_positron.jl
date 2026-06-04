@@ -51,8 +51,8 @@ function potential_atom(q1, q2, x1, x2, d, L)
     q_atom = 1.0
 
     potential(q1, q2, x1, x2, d) +
-    potential(q1, q_atom, x1, L / 3, d) +
-    potential(q2, q_atom, x2, L / 3, d)
+    potential(q1, q_atom, x1, L / 2, d) +
+    potential(q2, q_atom, x2, L / 2, d)
 end
 
 # ⟨mn|V|rs⟩
@@ -191,7 +191,7 @@ end
 
 function construct_hamiltonian_operator(N, q1, q2, m1, m2, d, L)
     pot_func(x1, x2) = potential_atom(q1, q2, x1, x2, d, L)
-    V = do_dct(N, 20_000, L, pot_func)
+    V = do_dct(N, 10_000, L, pot_func)
 
     i_iter = 0
     prev_print_iter = 0
@@ -220,12 +220,10 @@ function construct_hamiltonian_operator(N, q1, q2, m1, m2, d, L)
     H, kin_mat
 end
 
-function make_guesses(N, m1, m2, L, nev)
-    diag = [kin_mat_diag((m, n), m1, m2, L) for n in 1:N for m in 1:N]
+function make_guesses(P, nev)
+    order = sort(axes(P, 1); lt=(i, j) -> P[i, i] < P[j, j])
 
-    order = sort(eachindex(diag); lt=(i, j) -> diag[i] < diag[j])
-
-    guesses = zeros(N^2, nev)
+    guesses = zeros(size(P, 1), nev)
 
     for i in 1:nev
         guesses[order[i], i] = 1.0
@@ -235,6 +233,7 @@ function make_guesses(N, m1, m2, L, nev)
 end
 
 max_states = 5
+solve_tol = 1e-5
 
 function interactive()
     f = Figure(size=(1920, 1080))
@@ -288,7 +287,7 @@ function interactive()
 
     Label(config_panel[1, 1][1, 1], @lift @sprintf "d = %.2f" $d_slider)
 
-    n_max_default = "1"
+    n_max_default = "10"
     q1_default = "-1"
     q2_default = "-1"
     m1_default = "1"
@@ -404,10 +403,13 @@ function interactive()
     basis_eval_wireframe = Observable(zeros(0, 0))
 
     basis_eval = lift(max_n) do N
-        πonL = π / L[]
-        basis_eval_wireframe[] = [sin(n * πonL * x)
-                                  for n in 1:N, x in xs_wireframe[]]
-        [sin(n * πonL * x) for n in 1:N, x in xs[]]
+        println("Sampling basis functions:")
+        @time begin
+            πonL = π / L[]
+            basis_eval_wireframe[] = [sin(n * πonL * x)
+                                      for n in 1:N, x in xs_wireframe[]]
+            [sin(n * πonL * x) for n in 1:N, x in xs[]]
+        end
     end
 
     on(solve_btn.clicks) do _
@@ -416,17 +418,32 @@ function interactive()
 
             @async begin
                 println("Constructing Hamiltonian:")
-                H = @time construct_hamiltonian(
-                    max_n[], q1[], q2[], m1[], m2[], d_slider[], L[])
+                # H = @time construct_hamiltonian(
+                #     max_n[], q1[], q2[], m1[], m2[], d_slider[], L[])
+
+                H, P = construct_hamiltonian_operator(
+                    max_n[], q1[], q2[], m1[], m2[], d_slider[], L[]
+                )
+
+                # H = Symmetric(H)
+
+                # e, C = @time eigen(H, 1:min(max_states, size(H, 1)))
+
+                println("Constructing $max_states initial guesses")
+
+                guess = @time make_guesses(P, max_states)
 
                 println("Diagonalizing $(size(H, 1))x$(size(H, 2)) matrix")
 
-                H = Symmetric(H)
+                result = @time lobpcg(
+                    H, false, guess;
+                    P=P, log=true, maxiter=1000, tol=solve_tol, not_zeros=true
+                )
 
-                e, C = @time eigen(H, 1:min(max_states, size(H, 1)))
+                display(result)
 
-                energies[] = e
-                coeffs[] = C
+                energies[] = result.λ
+                coeffs[] = result.X
 
                 is_solving[] = false
             end
