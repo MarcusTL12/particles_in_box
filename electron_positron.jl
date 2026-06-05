@@ -411,7 +411,8 @@ function interactive()
                 new_coeffs = zeros(N, N, n_guesses)
                 old_coeffs = reshape(coeffs[], old_N, old_N, n_guesses)
 
-                new_coeffs[1:old_N, 1:old_N, :] .= old_coeffs
+                new_coeffs[1:min(old_N, N), 1:min(old_N, N), :] .=
+                    old_coeffs[1:min(old_N, N), 1:min(old_N, N), :]
 
                 coeffs[] = reshape(new_coeffs, N^2, n_guesses)
             end
