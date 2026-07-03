@@ -50,6 +50,7 @@
 # Fₘₙ = hₘₙ + ∑ᵣₛ(Dᵣₛ (gₘₙᵣₛ - ½ gₘₛᵣₙ))
 
 using QuadGK
+using HCubature
 using LinearAlgebra
 using FFTW
 
@@ -133,4 +134,176 @@ end
 
 function make_molecular_potential(qs, xs, d)
     x -> sum(-q / √((x - x0)^2 + d^2) for (q, x0) in zip(qs, xs))
+end
+
+# gₘₙᵣₛ = ⟨χₘχᵣ|g|χₙχₛ⟩
+function potential_2e_integral(m, n, r, s, L, d)
+    πonL = π / L
+
+    prefac = 4 / L^2
+
+    function integrand((x1, x2))
+        prefac *
+        sin(m * πonL * x1) * sin(r * πonL * x2) *
+        sin(n * πonL * x1) * sin(s * πonL * x2) *
+        1 / √((x1 - x2)^2 + d^2)
+    end
+
+    hcubature(integrand, (0, 0), (L, L); atol=1e-10)[1]
+end
+
+function construct_2e_potential_tensor_naive(N, L, d)
+    g_mat = zeros(N, N, N, N)
+
+    i_eval = 0
+
+    for s in 1:N, r in s:N
+        slice = @view g_mat[:, :, r, s]
+
+        for n in 1:N, m in n:N
+            i_eval += 1
+            integral = potential_2e_integral(m, n, r, s, L, d)
+
+            slice[m, n] = integral
+            if m != n
+                slice[n, m] = integral
+            end
+        end
+
+        if r != s
+            g_mat[:, :, s, r] .= slice
+        end
+    end
+
+    println("Evaluated $i_eval integrals")
+
+    g_mat
+end
+
+function cosine_potential_2e_integral(m, n, L, d)
+    πonL = π / L
+
+    prefac = 1 / L^2
+
+    function integrand((x1, x2))
+        prefac *
+        cos(m * πonL * x1) * cos(n * πonL * x2) *
+        1 / √((x1 - x2)^2 + d^2)
+    end
+
+    hcubature(integrand, (0, 0), (L, L); atol=1e-10)[1]
+end
+
+function construct_g_cos(N, L, d)
+    g_cos = zeros(2N + 1, 2N + 1)
+
+    i_eval = 0
+
+    for n in 0:2N, m in n:2:2N
+        i_eval += 1
+        integral = cosine_potential_2e_integral(m, n, L, d)
+        g_cos[begin+m, begin+n] = integral
+    end
+
+    println("Evaluated $i_eval integrals")
+
+    Symmetric(g_cos, :L)
+end
+
+# gₘₙᵣₛ = gₘ₋ₙ,ᵣ₋ₛ - gₘ₊ₙ,ᵣ₋ₛ - gₘ₋ₙ,ᵣ₊ₛ + gₘ₊ₙ,ᵣ₊ₛ
+function construct_2e_potential_tensor(N, L, d)
+    g_cos = construct_g_cos(N, L, d)
+
+    g_mat = zeros(N, N, N, N)
+
+    for s in 1:N, r in s:N
+        slice = @view g_mat[:, :, r, s]
+
+        for n in 1:N, m in n:N
+            integral = g_cos[begin+m-n, begin+r-s] -
+                       g_cos[begin+m+n, begin+r-s] -
+                       g_cos[begin+m-n, begin+r+s] +
+                       g_cos[begin+m+n, begin+r+s]
+
+            slice[m, n] = integral
+            if m != n
+                slice[n, m] = integral
+            end
+        end
+
+        if r != s
+            g_mat[:, :, s, r] .= slice
+        end
+    end
+
+    g_mat
+end
+
+function sample_function(xs, ys, f)
+    sample = zeros(Float64, length(xs), length(ys))
+
+    @inbounds begin
+        Threads.@threads for j in eachindex(ys)
+            y = ys[j]
+            for (i, x) in enumerate(xs)
+                sample[i, j] = f(x, y)
+            end
+        end
+    end
+
+    sample
+end
+
+function construct_g_cos_dct(N, M, L, d)
+    xs = range(0, L, length=(M + 1))[1:(end-1)]
+
+    xs = xs .+ step(xs) / 2
+
+    pot_func = (x1, x2) -> 1 / √((x1 - x2)^2 + d^2)
+
+    println("Sampling potential at $(M^2) points:")
+
+    sample = @time sample_function(xs, xs, pot_func)
+
+    println("Computing DCT:")
+    @time begin
+        dct_plan = FFTW.plan_r2r!(sample, FFTW.REDFT10;
+            num_threads=Threads.nthreads())
+        FFTW.mul!(sample, dct_plan, sample)
+    end
+
+    result = sample[1:(2N+1), 1:(2N+1)]
+
+    result .*= 1 / (4 * M^2)
+
+    result
+end
+
+# gₘₙᵣₛ = gₘ₋ₙ,ᵣ₋ₛ - gₘ₊ₙ,ᵣ₋ₛ - gₘ₋ₙ,ᵣ₊ₛ + gₘ₊ₙ,ᵣ₊ₛ
+function construct_2e_potential_tensor_dct(N, M, L, d)
+    g_cos = construct_g_cos_dct(N, M, L, d)
+
+    g_mat = zeros(N, N, N, N)
+
+    for s in 1:N, r in s:N
+        slice = @view g_mat[:, :, r, s]
+
+        for n in 1:N, m in n:N
+            integral = g_cos[begin+m-n, begin+r-s] -
+                       g_cos[begin+m+n, begin+r-s] -
+                       g_cos[begin+m-n, begin+r+s] +
+                       g_cos[begin+m+n, begin+r+s]
+
+            slice[m, n] = integral
+            if m != n
+                slice[n, m] = integral
+            end
+        end
+
+        if r != s
+            g_mat[:, :, s, r] .= slice
+        end
+    end
+
+    g_mat
 end
