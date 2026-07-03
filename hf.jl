@@ -51,6 +51,7 @@
 
 using LinearAlgebra
 using FFTW
+using Printf
 
 function construct_1e_potential_matrix_dct(N, M, L, V)
     xs = range(0, L, length=(M + 1))[1:(end-1)]
@@ -155,4 +156,80 @@ function construct_2e_potential_tensor_dct(N, M, L, d)
     end
 
     g_mat
+end
+
+function construct_h(N, L, V, M_1e)
+    h = if isnothing(V)
+        zeros(N, N)
+    else
+        construct_1e_potential_matrix_dct(N, M_1e, L, V)
+    end
+
+    # Kinetic contribution
+    for n in 1:N
+        h[n, n] += n^2 * π^2 / (2 * L^2)
+    end
+
+    h
+end
+
+function construct_fock_naive(N, L, V, D, d; M_1e=10_000_000, M_2e=10_000)
+    h = construct_h(N, L, V, M_1e)
+
+    g = construct_2e_potential_tensor_dct(N, M_2e, L, d)
+
+    G = zeros(N, N)
+
+    for n in 1:N, m in 1:N
+        element = 0.0
+
+        for s in 1:N, r in 1:N
+            element += D[r, s] * (g[m, n, r, s] - 0.5 * g[m, s, r, n])
+        end
+
+        G[m, n] = element
+    end
+
+    E = (h[:] + 0.5 * G[:]) ⋅ D[:]
+
+    @show E
+
+    h + G
+end
+
+function do_hf_naive(N, L, V, d, nocc; tol=1e-5)
+    C = Matrix(Diagonal(ones(N)))
+
+    D = 2.0 * C[:, 1:nocc] * C[:, 1:nocc]'
+
+    println("Constructing Fock:")
+    F = @time construct_fock_naive(N, L, V, D, d)
+
+    Fmo = C'F * C
+
+    grad = Fmo[1:nocc, nocc+1:end]
+
+    @printf "Init grad: %.2e\n" maximum(abs, grad)
+
+    i_iter = 1
+
+    while maximum(abs, grad) > tol
+        println("Iteration $i_iter:\n")
+        i_iter += 1
+
+        e, C = eigen(Symmetric(F))
+
+        D = 2.0 * C[:, 1:nocc] * C[:, 1:nocc]'
+
+        println("Constructing Fock:")
+        F = @time construct_fock_naive(N, L, V, D, d)
+
+        Fmo = C'F * C
+
+        grad = Fmo[1:nocc, nocc+1:end]
+
+        @printf "Grad: %.2e\n" maximum(abs, grad)
+    end
+
+    C
 end
