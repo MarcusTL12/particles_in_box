@@ -372,7 +372,7 @@ function solve_diis(error_mat)
     onevec = ones(n)
 
     A = [
-        2 * S onevec
+        S onevec
         onevec' 0
     ]
 
