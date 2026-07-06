@@ -237,6 +237,90 @@ function do_hf_naive(N, L, V, d, nocc; tol=1e-5, M_1e=10_000_000, M_2e=10_000)
     C
 end
 
+function do_hf_diis(N, L, V, d, nocc; tol=1e-5, M_1e=10_000_000, M_2e=10_000)
+    C = zeros(N, nocc)
+    for i in 1:nocc
+        C[i, i] = 1
+    end
+
+    println("Constructing h and g:")
+    @time begin
+        h = construct_h(N, L, V, M_1e)
+        g = construct_2e_potential_tensor_dct(N, M_2e, L, d)
+    end
+
+    D = 2.0 * C * C'
+
+    fock_history = Float64[]
+    grad_history = Float64[]
+
+    println("Constructing Fock:")
+    F = @time construct_fock_naive(N, h, g, D)
+
+    append!(fock_history, F)
+
+    FC = F * C
+    grad = FC - C * (C'FC)
+
+    maxabsgrad = maximum(abs, grad)
+    @printf "Init grad: %.2e\n" maxabsgrad
+
+    append!(grad_history, grad)
+
+    n_in_history = 1
+
+    i_iter = 1
+
+    while true
+        println("\nIteration $i_iter:\n")
+        i_iter += 1
+
+        e, C = eigen(Symmetric(F), 1:nocc)
+
+        D = 2.0 * C * C'
+
+        println("Constructing Fock:")
+        F = @time construct_fock_naive(N, h, g, D)
+
+        FC = F * C
+        grad = FC - C * (C'FC)
+
+        maxabsgrad = maximum(abs, grad)
+        @printf "Grad: %.2e\n" maxabsgrad
+
+        if maxabsgrad < tol
+            break
+        end
+
+        append!(fock_history, F)
+        append!(grad_history, grad)
+
+        n_in_history += 1
+
+        println("Solving diis problem with history length: $n_in_history")
+        error_mat = reshape(grad_history, N * nocc, n_in_history)
+        diis_coeff = solve_diis(error_mat)
+
+        fock_hist_mat = reshape(fock_history, N^2, n_in_history)
+
+        new_fock = fock_hist_mat * diis_coeff
+        fock_hist_mat[:, end] .= new_fock
+        F = reshape(new_fock, N, N)
+
+        new_grad = error_mat * diis_coeff
+        error_mat[:, end] .= new_grad
+
+        @printf "Grad after diis: %.2e\n" maximum(abs, new_grad)
+
+        FC = F * C
+        new_grad2 = FC - C * (C'FC)
+
+        @printf "Grad after diis (recomputed): %.2e\n" maximum(abs, new_grad2)
+    end
+
+    C
+end
+
 # diis:
 # Fmo = C' * F * C
 #
@@ -254,7 +338,42 @@ end
 #
 # new_err = ∑_i(err_i c_i)
 # ∑_i(c_i) = 1
-# minimize |new_err|^2
+# minimize Z = |new_err|^2
+# g(c) = ∑_i(c_i) - 1
 #
-# |new_err|^2 = new_err'new_err = ∑_ij(err_i'err_j c_i c_j)
+# Z = new_err'new_err = ∑_ij(err_i'err_j c_i c_j)
 #
+# L = Z + λ g
+#
+# ∂L/∂c_i = ∂Z/∂c_i + λ
+#
+# ∂Z/∂c_i = ∑_jk(err_j'err_k (δ_ij c_k + c_j δ_ik))
+#         = 2 ∑_j(err_i'err_j c_j)
+#
+# ∂L/∂c_i = 2 ∑_j(err_i'err_j c_j) + λ = 0
+#
+# ∂L/∂λ = ∑_i(c_i) - 1 = 0
+#
+# A x = b
+#
+# [ 2 err'err 1 ] [ c ] = [ 0 ]
+# [ 1         0 ] [ λ ]   [ 1 ]
+function solve_diis(error_mat)
+    n = size(error_mat, 2)
+
+    S = error_mat'error_mat
+
+    onevec = ones(n)
+
+    A = [
+        2 * S onevec
+        onevec' 0
+    ]
+
+    b = zeros(n + 1)
+    b[end] = 1
+
+    x = A\b
+
+    x[1:(end-1)]
+end
