@@ -251,3 +251,10 @@ end
 # Pv = I - Co * Co'
 #
 # err = Pv F Co = F Co - Co Co' F Co = F Co - Foo
+#
+# new_err = ∑_i(err_i c_i)
+# ∑_i(c_i) = 1
+# minimize |new_err|^2
+#
+# |new_err|^2 = new_err'new_err = ∑_ij(err_i'err_j c_i c_j)
+#
