@@ -194,9 +194,10 @@ function construct_fock_naive(N, h, g, D)
 end
 
 function do_hf_naive(N, L, V, d, nocc; tol=1e-5, M_1e=10_000_000, M_2e=10_000)
-    C = Matrix(Diagonal(ones(N)))
-
-    D = 2.0 * C[:, 1:nocc] * C[:, 1:nocc]'
+    C = zeros(N, nocc)
+    for i in 1:nocc
+        C[i, i] = 1
+    end
 
     println("Constructing h and g:")
     @time begin
@@ -204,12 +205,13 @@ function do_hf_naive(N, L, V, d, nocc; tol=1e-5, M_1e=10_000_000, M_2e=10_000)
         g = construct_2e_potential_tensor_dct(N, M_2e, L, d)
     end
 
+    D = 2.0 * C * C'
+
     println("Constructing Fock:")
     F = @time construct_fock_naive(N, h, g, D)
 
-    Fmo = C'F * C
-
-    grad = Fmo[1:nocc, (nocc+1):end]
+    FC = F * C
+    grad = FC - C * (C'FC)
 
     @printf "Init grad: %.2e\n" maximum(abs, grad)
 
@@ -219,19 +221,33 @@ function do_hf_naive(N, L, V, d, nocc; tol=1e-5, M_1e=10_000_000, M_2e=10_000)
         println("\nIteration $i_iter:\n")
         i_iter += 1
 
-        e, C = eigen(Symmetric(F))
+        e, C = eigen(Symmetric(F), 1:nocc)
 
-        D = 2.0 * C[:, 1:nocc] * C[:, 1:nocc]'
+        D = 2.0 * C * C'
 
         println("Constructing Fock:")
         F = @time construct_fock_naive(N, h, g, D)
 
-        Fmo = C'F * C
-
-        grad = Fmo[1:nocc, (nocc+1):end]
+        FC = F * C
+        grad = FC - C * (C'FC)
 
         @printf "Grad: %.2e\n" maximum(abs, grad)
     end
 
     C
 end
+
+# diis:
+# Fmo = C' * F * C
+#
+# C = [ Co Cv ]
+#
+# [ Foo Fov ] = [ Co' ] F [ Co Cv ]
+# [ Fvo Fvv ]   [ Cv' ]
+#
+# Fvo = Cv' F Co
+#
+# Project out occ space
+# Pv = I - Co * Co'
+#
+# err = Pv F Co = F Co - Co Co' F Co = F Co - Foo
