@@ -237,7 +237,8 @@ function do_hf_naive(N, L, V, d, nocc; tol=1e-5, M_1e=10_000_000, M_2e=10_000)
     C
 end
 
-function do_hf_diis(N, L, V, d, nocc; tol=1e-5, M_1e=10_000_000, M_2e=10_000)
+function do_hf_diis(N, L, V, d, nocc;
+    tol=1e-5, M_1e=10_000_000, M_2e=10_000, diis_max_hist=8)
     C = zeros(N, nocc)
     for i in 1:nocc
         C[i, i] = 1
@@ -292,10 +293,15 @@ function do_hf_diis(N, L, V, d, nocc; tol=1e-5, M_1e=10_000_000, M_2e=10_000)
             break
         end
 
-        append!(fock_history, F)
-        append!(grad_history, grad)
+        if n_in_history == diis_max_hist
+            fock_history = [fock_history[(length(F)+1):end]; F[:]]
+            grad_history = [grad_history[(length(grad)+1):end]; grad[:]]
+        else
+            append!(fock_history, F)
+            append!(grad_history, grad)
 
-        n_in_history += 1
+            n_in_history += 1
+        end
 
         println("Solving diis problem with history length: $n_in_history")
         error_mat = reshape(grad_history, N * nocc, n_in_history)
