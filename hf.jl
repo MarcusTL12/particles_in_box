@@ -173,11 +173,7 @@ function construct_h(N, L, V, M_1e)
     h
 end
 
-function construct_fock_naive(N, L, V, D, d; M_1e=10_000_000, M_2e=10_000)
-    h = construct_h(N, L, V, M_1e)
-
-    g = construct_2e_potential_tensor_dct(N, M_2e, L, d)
-
+function construct_fock_naive(N, h, g, D)
     G = zeros(N, N)
 
     for n in 1:N, m in 1:N
@@ -197,24 +193,30 @@ function construct_fock_naive(N, L, V, D, d; M_1e=10_000_000, M_2e=10_000)
     h + G
 end
 
-function do_hf_naive(N, L, V, d, nocc; tol=1e-5)
+function do_hf_naive(N, L, V, d, nocc; tol=1e-5, M_1e=10_000_000, M_2e=10_000)
     C = Matrix(Diagonal(ones(N)))
 
     D = 2.0 * C[:, 1:nocc] * C[:, 1:nocc]'
 
+    println("Constructing h and g:")
+    @time begin
+        h = construct_h(N, L, V, M_1e)
+        g = construct_2e_potential_tensor_dct(N, M_2e, L, d)
+    end
+
     println("Constructing Fock:")
-    F = @time construct_fock_naive(N, L, V, D, d)
+    F = @time construct_fock_naive(N, h, g, D)
 
     Fmo = C'F * C
 
-    grad = Fmo[1:nocc, nocc+1:end]
+    grad = Fmo[1:nocc, (nocc+1):end]
 
     @printf "Init grad: %.2e\n" maximum(abs, grad)
 
     i_iter = 1
 
     while maximum(abs, grad) > tol
-        println("Iteration $i_iter:\n")
+        println("\nIteration $i_iter:\n")
         i_iter += 1
 
         e, C = eigen(Symmetric(F))
@@ -222,11 +224,11 @@ function do_hf_naive(N, L, V, d, nocc; tol=1e-5)
         D = 2.0 * C[:, 1:nocc] * C[:, 1:nocc]'
 
         println("Constructing Fock:")
-        F = @time construct_fock_naive(N, L, V, D, d)
+        F = @time construct_fock_naive(N, h, g, D)
 
         Fmo = C'F * C
 
-        grad = Fmo[1:nocc, nocc+1:end]
+        grad = Fmo[1:nocc, (nocc+1):end]
 
         @printf "Grad: %.2e\n" maximum(abs, grad)
     end
