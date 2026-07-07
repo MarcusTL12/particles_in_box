@@ -293,9 +293,19 @@ function do_hf_diis(N, L, V, d, nocc;
             break
         end
 
-        if n_in_history == diis_max_hist
-            fock_history = [fock_history[(length(F)+1):end]; F[:]]
-            grad_history = [grad_history[(length(grad)+1):end]; grad[:]]
+        if n_in_history >= diis_max_hist
+            # fock_history = [fock_history[(length(F)+1):end]; F[:]]
+            # grad_history = [grad_history[(length(grad)+1):end]; grad[:]]
+
+            empty!(fock_history)
+            empty!(grad_history)
+
+            append!(fock_history, F)
+            append!(grad_history, grad)
+
+            n_in_history = 1
+
+            continue
         else
             append!(fock_history, F)
             append!(grad_history, grad)
@@ -313,15 +323,12 @@ function do_hf_diis(N, L, V, d, nocc;
         fock_hist_mat[:, end] .= new_fock
         F = reshape(new_fock, N, N)
 
-        new_grad = error_mat * diis_coeff
-        error_mat[:, end] .= new_grad
+        FC = F * C
+        new_grad = FC - C * (C'FC)
+
+        error_mat[:, end] .= new_grad[:]
 
         @printf "Grad after diis: %.2e\n" maximum(abs, new_grad)
-
-        FC = F * C
-        new_grad2 = FC - C * (C'FC)
-
-        @printf "Grad after diis (recomputed): %.2e\n" maximum(abs, new_grad2)
     end
 
     C
