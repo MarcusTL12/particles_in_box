@@ -203,7 +203,7 @@ function construct_coulomb_matrix(g_cos, D)
         element = 0.0
         for s in 1:N, r in 1:N
             element += (
-                g_cos[begin+i, begin+abs(r-s)] - g_cos[begin+i, begin+r+s]
+                g_cos[begin+abs(r-s), begin+i] - g_cos[begin+r+s, begin+i]
             ) * D[r, s]
         end
         x[begin+i] = element
@@ -218,26 +218,40 @@ function construct_coulomb_matrix(g_cos, D)
     G
 end
 
-function construct_fock_direct(N, h, g_cos, D)
-    g = construct_2e_potential_tensor_dct(N, 10_000, 1, 0.05)
+function construct_exchange_matrix(g_cos, D)
+    N = size(D, 1)
 
-    G_exc_naive = zeros(N, N)
+    g_cos_upfold = [
+        g_cos[end:-1:2, end:-1:2] g_cos[end:-1:2, 1:end-(N+1)]
+        g_cos[1:end-(N+1), end:-1:2] g_cos[1:end-(N+1), 1:end-(N+1)]
+    ]
 
-    for n in 1:N, m in 1:N
-        element = 0.0
+    C = conv(g_cos_upfold, D)
 
-        for s in 1:N, r in 1:N
-            element += D[r, s] * g[m, s, r, n]
-        end
+    G00 = @view C[end-2(N-1):end-(N-1), end-2(N-1):end-(N-1)]
+    G01 = @view C[end-2(N-1):end-(N-1), begin+2(N-1):-1:begin+(N-1)]
+    G10 = @view C[begin+2(N-1):-1:begin+(N-1), end-2(N-1):end-(N-1)]
+    G11 = @view C[begin+2(N-1):-1:begin+(N-1), begin+2(N-1):-1:begin+(N-1)]
 
-        G_exc_naive[m, n] = -0.5 * element
-    end
+    G = zeros(size(D))
 
-    G_coul = construct_coulomb_matrix(g_cos, D)
+    G .+= G00
+    G .-= G01
+    G .-= G10
+    G .+= G11
 
-    @show maximum(abs, G_coul_naive - G_coul)
+    G .*= -0.5
 
-    G = G_coul + G_exc_naive
+    G
+end
+
+function construct_fock_direct(h, g_cos, D)
+    println("Constructing Coulomb matrix:")
+    G_coul = @time construct_coulomb_matrix(g_cos, D)
+    println("Constructing Exchange matrix:")
+    G_exc = @time construct_exchange_matrix(g_cos, D)
+
+    G = G_coul + G_exc
 
     E = (h[:] + 0.5 * G[:]) ⋅ D[:]
 
@@ -300,7 +314,7 @@ function do_hf_diis(N, L, V, d, nocc;
     println("Constructing h and g:")
     @time begin
         h = construct_h(N, L, V, M_1e)
-        g = construct_2e_potential_tensor_dct(N, M_2e, L, d)
+        g_cos = construct_g_cos_dct(N, M_2e, L, d)
     end
 
     D = 2.0 * C * C'
@@ -309,7 +323,7 @@ function do_hf_diis(N, L, V, d, nocc;
     grad_history = Float64[]
 
     println("Constructing Fock:")
-    F = @time construct_fock_naive(N, h, g, D)
+    F = @time construct_fock_direct(h, g_cos, D)
 
     append!(fock_history, F)
 
@@ -329,12 +343,13 @@ function do_hf_diis(N, L, V, d, nocc;
         println("\nIteration $i_iter:\n")
         i_iter += 1
 
-        e, C = eigen(Symmetric(F), 1:nocc)
+        println("Diagonalizing Fock matrix:")
+        e, C = @time eigen(Symmetric(F), 1:nocc)
 
         D = 2.0 * C * C'
 
         println("Constructing Fock:")
-        F = @time construct_fock_naive(N, h, g, D)
+        F = @time construct_fock_direct(h, g_cos, D)
 
         FC = F * C
         grad = FC - C * (C'FC)
