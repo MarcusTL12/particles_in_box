@@ -25,15 +25,19 @@ function evaluate_sin_basis_smart(N, nx)
     ys = zeros(nx, N)
 
     IVM.sin!((@view ys[1:(end-1), 1]), collect(xs))
-    # ys[1:(end-1), 1] .= sin.(xs)
     ys[end, 1] = ys[1, 1]
 
-    for n in 2:N, i in 0:(nx-1)
-        j = (n*i)%(2 * (nx-1))
-        if j < nx - 1
-            ys[begin+i, n] = ys[begin+j, 1]
-        else
-            ys[begin+i, n] = -ys[begin+j-nx+1, 1]
+    @inbounds for n in 2:N
+        j = 0
+        s = false
+        for i in 0:(nx-1)
+            ys[begin+i, n] = s ? ys[begin+j, 1] : -ys[begin+j, 1]
+
+            j += n
+            if j >= nx - 1
+                j -= nx - 1
+                s = !s
+            end
         end
     end
 
