@@ -54,12 +54,16 @@ function interactive()
     L = Observable(1.0)
     d = Observable(0.05)
     nocc = Observable(1)
+    n_xs = Observable(1000)
 
-    basis_eval = lift(N) do N
-        evaluate_sin_basis(N, 1000)
-    end
+    xs = @lift range(0, $L, length=$n_xs)
+    basis_eval = evaluate_sin_basis($N, $n_xs)
 
     e, C = do_hf_diis(N[], L[], nothing, d[], nocc[])
+
+    orb_index = Observable(1)
+
+    ys = @lift $basis_eval * ($C)[:, $orb_index]
 
     f
 end
