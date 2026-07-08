@@ -416,6 +416,8 @@ function do_hf_diis(N, L, V, d, nocc;
 
     i_iter = 1
 
+    e = zeros(nocc)
+
     while true
         println("\nIteration $i_iter:\n")
         i_iter += 1
@@ -476,7 +478,7 @@ function do_hf_diis(N, L, V, d, nocc;
         @printf "Grad after diis: %.2e\n" maximum(abs, new_grad)
     end
 
-    C
+    e, C
 end
 
 # diis:
