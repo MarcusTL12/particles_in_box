@@ -199,19 +199,21 @@ function construct_coulomb_matrix(g_cos, D)
 
     x = zeros(2N + 1)
 
-    for i in 0:2N
+    println("Constructing x:")
+    @time for i in 0:2N
         element = 0.0
-        for s in 1:N, r in 1:N
+        for s in 1:N, r in (s+isodd(i)):2:N
             element += (
                 g_cos[begin+abs(r-s), begin+i] - g_cos[begin+r+s, begin+i]
-            ) * D[r, s]
+            ) * D[r, s] * (r == s ? 1 : 2)
         end
         x[begin+i] = element
     end
 
     G = zeros(N, N)
 
-    for n in 1:N, m in 1:N
+    println("Constructing G from x:")
+    @time for n in 1:N, m in 1:N
         G[m, n] = x[begin+abs(m-n)] - x[begin+m+n]
     end
 
@@ -222,16 +224,16 @@ function construct_exchange_matrix(g_cos, D)
     N = size(D, 1)
 
     g_cos_upfold = [
-        g_cos[end:-1:2, end:-1:2] g_cos[end:-1:2, 1:end-(N+1)]
-        g_cos[1:end-(N+1), end:-1:2] g_cos[1:end-(N+1), 1:end-(N+1)]
+        g_cos[end:-1:2, end:-1:2] g_cos[end:-1:2, 1:(end-(N+1))]
+        g_cos[1:(end-(N+1)), end:-1:2] g_cos[1:(end-(N+1)), 1:(end-(N+1))]
     ]
 
     C = conv(g_cos_upfold, D)
 
-    G00 = @view C[end-2(N-1):end-(N-1), end-2(N-1):end-(N-1)]
-    G01 = @view C[end-2(N-1):end-(N-1), begin+2(N-1):-1:begin+(N-1)]
-    G10 = @view C[begin+2(N-1):-1:begin+(N-1), end-2(N-1):end-(N-1)]
-    G11 = @view C[begin+2(N-1):-1:begin+(N-1), begin+2(N-1):-1:begin+(N-1)]
+    G00 = @view C[(end-2(N-1)):(end-(N-1)), (end-2(N-1)):(end-(N-1))]
+    G01 = @view C[(end-2(N-1)):(end-(N-1)), (begin+2(N-1)):-1:(begin+(N-1))]
+    G10 = @view C[(begin+2(N-1)):-1:(begin+(N-1)), (end-2(N-1)):(end-(N-1))]
+    G11 = @view C[(begin+2(N-1)):-1:(begin+(N-1)), (begin+2(N-1)):-1:(begin+(N-1))]
 
     G = zeros(size(D))
 
