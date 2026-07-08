@@ -51,6 +51,7 @@
 
 using LinearAlgebra
 using FFTW
+using DSP
 using Printf
 
 function construct_1e_potential_matrix_dct(N, M, L, V)
@@ -185,6 +186,58 @@ function construct_fock_naive(N, h, g, D)
 
         G[m, n] = element
     end
+
+    E = (h[:] + 0.5 * G[:]) ⋅ D[:]
+
+    @show E
+
+    h + G
+end
+
+function construct_coulomb_matrix(g_cos, D)
+    N = size(D, 1)
+
+    x = zeros(2N + 1)
+
+    for i in 0:2N
+        element = 0.0
+        for s in 1:N, r in 1:N
+            element += (
+                g_cos[begin+i, begin+abs(r-s)] - g_cos[begin+i, begin+r+s]
+            ) * D[r, s]
+        end
+        x[begin+i] = element
+    end
+
+    G = zeros(N, N)
+
+    for n in 1:N, m in 1:N
+        G[m, n] = x[begin+abs(m-n)] - x[begin+m+n]
+    end
+
+    G
+end
+
+function construct_fock_direct(N, h, g_cos, D)
+    g = construct_2e_potential_tensor_dct(N, 10_000, 1, 0.05)
+
+    G_exc_naive = zeros(N, N)
+
+    for n in 1:N, m in 1:N
+        element = 0.0
+
+        for s in 1:N, r in 1:N
+            element += D[r, s] * g[m, s, r, n]
+        end
+
+        G_exc_naive[m, n] = -0.5 * element
+    end
+
+    G_coul = construct_coulomb_matrix(g_cos, D)
+
+    @show maximum(abs, G_coul_naive - G_coul)
+
+    G = G_coul + G_exc_naive
 
     E = (h[:] + 0.5 * G[:]) ⋅ D[:]
 
