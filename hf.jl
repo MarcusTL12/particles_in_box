@@ -227,27 +227,37 @@ end
 function odd_even_kernel!(xoe, goe, D)
     N = size(D, 1)
 
-    @inbounds @fastmath begin
-        for s in 1:N
-            for r in s:2:N
-                prefac = D[r, s] * (r == s ? 1 : 2)
-                for i in 0:N
-                    xoe[begin+i, 1] = muladd(prefac,
-                        goe[begin+i, 1, begin+abs(r-s)] -
-                        goe[begin+i, 1, begin+r+s],
-                        xoe[begin+i, 1])
-                end
-            end
+    nth = Threads.nthreads()
 
-            for r in (s+1):2:N
-                prefac = D[r, s] * 2
-                for i in 0:(N-1)
-                    xoe[begin+i, 2] = muladd(prefac,
-                        goe[begin+i, 2, begin+abs(r-s)] -
-                        goe[begin+i, 2, begin+r+s],
-                        xoe[begin+i, 2])
+    buf = zeros(size(xoe)..., nth)
+
+    @inbounds @fastmath begin
+        Threads.@threads for id in 1:nth
+            for s in id:nth:N
+                for r in s:2:N
+                    prefac = D[r, s] * (r == s ? 1 : 2)
+                    for i in 0:N
+                        buf[begin+i, 1, id] = muladd(prefac,
+                            goe[begin+i, 1, begin+abs(r-s)] -
+                            goe[begin+i, 1, begin+r+s],
+                            buf[begin+i, 1, id])
+                    end
+                end
+
+                for r in (s+1):2:N
+                    prefac = D[r, s] * 2
+                    for i in 0:(N-1)
+                        buf[begin+i, 2, id] = muladd(prefac,
+                            goe[begin+i, 2, begin+abs(r-s)] -
+                            goe[begin+i, 2, begin+r+s],
+                            buf[begin+i, 2, id])
+                    end
                 end
             end
+        end
+
+        for id in 1:nth
+            xoe .+= @view buf[:, :, id]
         end
     end
 end
