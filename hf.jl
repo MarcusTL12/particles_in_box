@@ -194,26 +194,44 @@ function construct_fock_naive(N, h, g, D)
     h + G
 end
 
+function construct_coulomb_x!(x, g_cos, D)
+    N = size(D, 1)
+
+    @fastmath @inbounds begin
+        for i in 0:2N
+            element = 0.0
+            for s in 1:N, r in (s+isodd(i)):2:N
+                element += (
+                    g_cos[begin+abs(r-s), begin+i] - g_cos[begin+r+s, begin+i]
+                ) * D[r, s] * (r == s ? 1 : 2)
+            end
+            x[begin+i] = element
+        end
+    end
+end
+
+function construct_coulomb_x_transposed!(x, g_cos, D)
+    N = size(D, 1)
+
+    @fastmath @inbounds begin
+        for s in 1:N, r in s:N, i in 0:2N
+            x[begin+i] += (
+                g_cos[begin+i, begin+abs(r-s)] - g_cos[begin+i, begin+r+s]
+            ) * D[r, s] * (r == s ? 1 : 2)
+        end
+    end
+end
+
 function construct_coulomb_matrix(g_cos, D)
     N = size(D, 1)
 
     x = zeros(2N + 1)
 
-    println("Constructing x:")
-    @time for i in 0:2N
-        element = 0.0
-        for s in 1:N, r in (s+isodd(i)):2:N
-            element += (
-                g_cos[begin+abs(r-s), begin+i] - g_cos[begin+r+s, begin+i]
-            ) * D[r, s] * (r == s ? 1 : 2)
-        end
-        x[begin+i] = element
-    end
+    construct_coulomb_x_transposed!(x, g_cos, D)
 
     G = zeros(N, N)
 
-    println("Constructing G from x:")
-    @time for n in 1:N, m in 1:N
+    for n in 1:N, m in 1:N
         G[m, n] = x[begin+abs(m-n)] - x[begin+m+n]
     end
 
