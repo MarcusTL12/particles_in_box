@@ -213,6 +213,8 @@ end
 function construct_coulomb_x_transposed!(x, g_cos, D)
     N = size(D, 1)
 
+    fill!(x, 0.0)
+
     @fastmath @inbounds begin
         for s in 1:N, r in s:N, i in 0:2N
             x[begin+i] += (
@@ -220,6 +222,26 @@ function construct_coulomb_x_transposed!(x, g_cos, D)
             ) * D[r, s] * (r == s ? 1 : 2)
         end
     end
+end
+
+function construct_coulomb_x_odd_even!(x, g_cos, D)
+    N = size(D, 1)
+
+    xoe = zeros(N + 1, 2)
+
+    for s in 1:N, r in s:2:N, i in 0:N
+        xoe[begin+i, 1] += (
+            g_cos[begin+2i, begin+abs(r-s)] - g_cos[begin+2i, begin+r+s]
+        ) * D[r, s] * (r == s ? 1 : 2)
+    end
+
+    for s in 1:N, r in (s+1):2:N, i in 0:(N-1)
+        xoe[begin+i, 2] += (
+            g_cos[begin+2i+1, begin+abs(r-s)] - g_cos[begin+2i+1, begin+r+s]
+        ) * D[r, s] * 2
+    end
+
+    x .= xoe'[1:(end-1)]
 end
 
 function construct_coulomb_matrix(g_cos, D)
