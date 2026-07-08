@@ -3,7 +3,7 @@ using IntelVectorMath
 
 include("hf.jl")
 
-function evaluate_sin_basis(N, nx)
+function evaluate_sin_basis_naive(N, nx)
     xs = range(0, π, length=nx)
 
     ys = zeros(length(xs), N)
@@ -19,7 +19,7 @@ function evaluate_sin_basis(N, nx)
     ys
 end
 
-function evaluate_sin_basis_smart(N, nx)
+function evaluate_sin_basis(N, nx)
     xs = range(0, π, length=nx)[1:(end-1)]
 
     ys = zeros(nx, N)
