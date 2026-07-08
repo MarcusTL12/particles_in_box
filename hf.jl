@@ -224,24 +224,49 @@ function construct_coulomb_x_transposed!(x, g_cos, D)
     end
 end
 
+function odd_even_kernel!(xoe, goe, D)
+    N = size(D, 1)
+
+    @inbounds @fastmath begin
+        for s in 1:N
+            for r in s:2:N
+                prefac = D[r, s] * (r == s ? 1 : 2)
+                for i in 0:N
+                    xoe[begin+i, 1] = muladd(prefac,
+                        goe[begin+i, 1, begin+abs(r-s)] -
+                        goe[begin+i, 1, begin+r+s],
+                        xoe[begin+i, 1])
+                end
+            end
+
+            for r in (s+1):2:N
+                prefac = D[r, s] * 2
+                for i in 0:(N-1)
+                    xoe[begin+i, 2] = muladd(prefac,
+                        goe[begin+i, 2, begin+abs(r-s)] -
+                        goe[begin+i, 2, begin+r+s],
+                        xoe[begin+i, 2])
+                end
+            end
+        end
+    end
+end
+
 function construct_coulomb_x_odd_even!(x, g_cos, D)
     N = size(D, 1)
 
     xoe = zeros(N + 1, 2)
 
-    for s in 1:N, r in s:2:N, i in 0:N
-        xoe[begin+i, 1] += (
-            g_cos[begin+2i, begin+abs(r-s)] - g_cos[begin+2i, begin+r+s]
-        ) * D[r, s] * (r == s ? 1 : 2)
+    goe = zeros(N + 1, 2, 2N + 1)
+
+    for i in 0:2N
+        goe[:, 1, begin+i] .= @view g_cos[1:2:end, begin+i]
+        goe[1:(end-1), 2, begin+i] .= @view g_cos[2:2:end, begin+i]
     end
 
-    for s in 1:N, r in (s+1):2:N, i in 0:(N-1)
-        xoe[begin+i, 2] += (
-            g_cos[begin+2i+1, begin+abs(r-s)] - g_cos[begin+2i+1, begin+r+s]
-        ) * D[r, s] * 2
-    end
+    @inline odd_even_kernel!(xoe, goe, D)
 
-    x .= xoe'[1:(end-1)]
+    x .= @view xoe'[1:(end-1)]
 end
 
 function construct_coulomb_matrix(g_cos, D)
@@ -249,7 +274,7 @@ function construct_coulomb_matrix(g_cos, D)
 
     x = zeros(2N + 1)
 
-    construct_coulomb_x_transposed!(x, g_cos, D)
+    construct_coulomb_x_odd_even!(x, g_cos, D)
 
     G = zeros(N, N)
 
